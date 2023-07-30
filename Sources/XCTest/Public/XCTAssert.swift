@@ -105,6 +105,29 @@ private func _XCTEvaluateAssertion(_ assertion: _XCTAssertion, message: @autoclo
     }
 }
 
+@available(iOS 13.0.0, *)
+private func _XCTEvaluateAsyncAssertion(_ assertion: _XCTAssertion, message: @autoclosure () -> String, file: StaticString, line: UInt, expression: () async throws -> _XCTAssertionResult) async {
+    let result: _XCTAssertionResult
+    do {
+        result = try await expression()
+    } catch {
+        result = .unexpectedFailure(error)
+    }
+
+    switch result {
+    case .success:
+        return
+    default:
+        if let currentTestCase = XCTCurrentTestCase {
+            currentTestCase.recordFailure(
+                withDescription: "\(result.failureDescription(assertion)) - \(message())",
+                inFile: String(describing: file),
+                atLine: Int(line),
+                expected: result.isExpected)
+        }
+    }
+}
+
 /// This function emits a test failure if the general `Boolean` expression passed
 /// to it evaluates to `false`.
 ///
@@ -439,6 +462,42 @@ public func XCTAssertNoThrow<T>(_ expression: @autoclosure () throws -> T, _ mes
             return .success
         } catch let error {
             return .expectedFailure("threw error \"\(error)\"")
+        }
+    }
+}
+
+@available(iOS 13.0.0, *)
+func XCTAssertAsyncThrow<T>(
+    _ expression: @autoclosure () async throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ errorHandler: (_ error: Error) -> Void = { _ in }
+) async {
+    await _XCTEvaluateAsyncAssertion(.throwsError, message: message(), file: file, line: line) {
+        do {
+            _ = try await expression()
+            return .expectedFailure("Asynchronous call did not throw an error.")
+        } catch {
+            return .success
+        }
+    }
+}
+
+@available(iOS 13.0.0, *)
+func XCTAssertAsyncNoThrow<T>(
+    _ expression: @autoclosure () async throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ errorHandler: (_ error: Error) -> Void = { _ in }
+) async {
+    await _XCTEvaluateAsyncAssertion(.throwsError, message: message(), file: file, line: line) {
+        do {
+            _ = try await expression()
+            return .success
+        } catch {
+            return .expectedFailure("Asynchronous call did throw an error.")
         }
     }
 }
